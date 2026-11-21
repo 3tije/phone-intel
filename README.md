@@ -67,14 +67,9 @@ phone-intel-v1/
 ```
 
 
-## Stage 2 — Phone Intelligence Engine
-Backend endpoint:
-- `POST /api/phone/analyze`
-- Request JSON: `{"phone":"081234567890"}`
-- Response includes E.164, national/international formatting, country, calling code, possible/valid flags, and numbering-plan type.
-
-The endpoint uses `libphonenumber-js` metadata. It does **not** determine subscriber identity, live status, current carrier, GPS location, or who is using the phone. Number portability and allocation changes mean carrier inference from prefixes is not reliable.
-
-Configure the frontend by setting `API_BASE_URL` in `js/config.js` to the deployed backend origin. Keep this URL public; never place API secrets there.
-
-For local development, start the backend in `backend/` with `npm install && npm run dev`, then set `API_BASE_URL` to `http://localhost:8787` in `js/config.js`. Serve the frontend on the configured CORS origin (default `http://localhost:8888`).
+## GitHub Pages compatibility fix
+All frontend asset paths are relative to the repository base path. The manifest
+uses `start_url: ./` and `scope: ./`; the service worker derives its cache paths
+from its registration scope. This supports deployment at
+`https://<user>.github.io/<repository>/` as well as a custom-domain root.
+The frontend now loads `js/config.js` before `js/app.js`.

@@ -92,5 +92,5 @@ function renderDashboard(){
 }
 function escapeHtml(str){return String(str).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
 $("clearHistory").addEventListener("click",()=>{if(confirm("Hapus seluruh riwayat lokal PHONE INTEL pada browser ini?")){localStorage.removeItem("phoneIntelHistory");renderDashboard();}});
-if("serviceWorker" in navigator && location.protocol!=="file:"){window.addEventListener("load",()=>navigator.serviceWorker.register("/sw.js").catch(err=>console.warn("Service worker:",err)));}
+if("serviceWorker" in navigator && location.protocol!=="file:"){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js", { scope: "./" }).catch(err=>console.warn("Service worker:",err)));}
 renderDashboard();
