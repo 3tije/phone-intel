@@ -1,4 +1,4 @@
-const CACHE = "phone-intel-v1-pages";
+const CACHE = "phone-intel-v1-pages-v2";
 const BASE = new URL("./", self.registration.scope);
 const ASSETS = [
   "",

@@ -91,6 +91,18 @@ function renderDashboard(){
   reports.className="activity-list";reports.innerHTML=items.map(item=>`<div class="quick-link"><span>▤</span><div><strong>${escapeHtml(item.number)}</strong><small>${new Date(item.createdAt).toLocaleString("id-ID")} · ${item.type}</small></div><b>${item.status}</b></div>`).join("");
 }
 function escapeHtml(str){return String(str).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+
+// Connect the existing dashboard and Phone Search forms to the Cloudflare API.
+$("quickSearch").addEventListener("submit", (event) => {
+  event.preventDefault();
+  startAnalysis($("phoneInput").value, "phoneError");
+});
+
+$("fullSearch").addEventListener("submit", (event) => {
+  event.preventDefault();
+  startAnalysis($("fullPhoneInput").value, "fullPhoneError", "searchPreview");
+});
+
 $("clearHistory").addEventListener("click",()=>{if(confirm("Hapus seluruh riwayat lokal PHONE INTEL pada browser ini?")){localStorage.removeItem("phoneIntelHistory");renderDashboard();}});
 if("serviceWorker" in navigator && location.protocol!=="file:"){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js", { scope: "./" }).catch(err=>console.warn("Service worker:",err)));}
 renderDashboard();
