@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch server.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev:worker": "wrangler dev",
+    "deploy:worker": "wrangler deploy"
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -13,5 +15,8 @@
     "express": "^4.21.2",
     "helmet": "^8.0.0",
     "libphonenumber-js": "^1.11.20"
+  },
+  "devDependencies": {
+    "wrangler": "^4.68.0"
   }
 }

@@ -22,6 +22,4 @@ app.use((err, _req, res, _next) => {
   console.error(err);
   res.status(500).json({ error: "Terjadi kesalahan internal." });
 });
-app.listen(port, "0.0.0.0", () => {
-  console.log(`PHONE INTEL API listening on ${port}`);
-});
+app.listen(port, () => console.log(`PHONE INTEL API listening on ${port}`));
