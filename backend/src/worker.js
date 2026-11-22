@@ -70,19 +70,95 @@ function buildPublicQuery(phone, purpose) {
   return null;
 }
 
+
 async function searchPublicSources(phone, purpose, env) {
   const query = buildPublicQuery(phone, purpose);
+
   if (!query) {
-    return { ok: false, status: "invalid_purpose", error: "Tujuan pencarian tidak didukung." };
+    return {
+      ok: false,
+      status: "invalid_purpose",
+      error: "Tujuan pencarian tidak didukung."
+    };
   }
-  if (!env.BRAVE_SEARCH_API_KEY) {
+
+  if (!env.TAVILY_API_KEY) {
     return {
       ok: false,
       status: "connector_not_configured",
-      error: "Konektor pencarian belum dikonfigurasi. Tambahkan BRAVE_SEARCH_API_KEY sebagai secret Cloudflare Worker.",
+      error: "Tavily API Key belum dikonfigurasi.",
       setupRequired: true
     };
   }
+
+  const response = await fetch(
+    "https://api.tavily.com/search",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${env.TAVILY_API_KEY}`
+      },
+      body: JSON.stringify({
+        query,
+        search_depth: "basic",
+        topic: "general",
+        max_results: MAX_SEARCH_RESULTS,
+        include_answer: false,
+        include_raw_content: false,
+        country: "indonesia"
+      })
+    }
+  );
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: "provider_error",
+      error: `Tavily mengembalikan status ${response.status}. Periksa API Key dan kuota.`
+    };
+  }
+
+  const payload = await response.json();
+
+  const results = Array.isArray(payload?.results)
+    ? payload.results
+    : [];
+
+  const findings = results.slice(0, MAX_SEARCH_RESULTS)
+    .flatMap((item) => {
+      const url = String(item?.url || "");
+
+      if (!/^https?:\/\//i.test(url)) return [];
+
+      return [{
+        title: String(item?.title || "Tanpa judul").slice(0, 300),
+        url,
+        snippet: String(item?.content || "").slice(0, 700),
+        sourceDomain: (() => {
+          try {
+            return new URL(url).hostname;
+          } catch {
+            return "";
+          }
+        })(),
+        verificationStatus: "unverified",
+        observedAt: new Date().toISOString()
+      }];
+    });
+
+  return {
+    ok: true,
+    status: "review_required",
+    provider: "Tavily",
+    purpose,
+    query,
+    resultCount: findings.length,
+    findings,
+    note: "Hasil berasal dari indeks web publik dan belum diverifikasi. Kemunculan nomor tidak membuktikan kepemilikan atau identitas seseorang. Periksa sumber asli sebelum menyimpan atau menyimpulkan."
+  };
+}
+
 
   const endpoint = new URL("https://api.search.brave.com/res/v1/web/search");
   endpoint.searchParams.set("q", query);
