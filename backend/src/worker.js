@@ -103,10 +103,6 @@ function buildPublicQuery(phone, purpose) {
   return null;
 }
 
-
-  return null;
-}
-
 // ==========================================
 // TAVILY SEARCH ENGINE
 // ==========================================
