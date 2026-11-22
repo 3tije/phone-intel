@@ -87,11 +87,10 @@ function analyzePhoneNumber(input) {
 // PUBLIC SEARCH QUERY
 // ==========================================
 
-function buildPublicQuery(phone, purpose) {
-  // Search restricted to public business-contact
-  // and scam-report information only.
 
-  const exact = `"${phone.number}"`;
+function buildPublicQuery(phone, purpose) {
+  // Gunakan properti e164 dari analyzePhoneNumber()
+  const exact = `"${phone.e164}"`;
 
   if (purpose === "business-contact") {
     return `${exact} (kontak resmi OR contact OR customer service OR layanan pelanggan)`;
@@ -100,6 +99,10 @@ function buildPublicQuery(phone, purpose) {
   if (purpose === "spam-report") {
     return `${exact} (spam OR scam OR fraud OR penipuan OR nomor mencurigakan)`;
   }
+
+  return null;
+}
+
 
   return null;
 }
