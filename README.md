@@ -73,3 +73,27 @@ uses `start_url: ./` and `scope: ./`; the service worker derives its cache paths
 from its registration scope. This supports deployment at
 `https://<user>.github.io/<repository>/` as well as a custom-domain root.
 The frontend now loads `js/config.js` before `js/app.js`.
+
+
+## V1.1 Stage 1 — Public Source Discovery (backend foundation)
+
+The Cloudflare Worker now exposes:
+- `POST /api/public/search`
+- Purpose is required: `business-contact` or `spam-report`
+- Input phone must pass Indonesian numbering-plan metadata validation.
+- Search results are returned as unverified leads with title, URL, snippet, domain and observation time.
+- The connector does not resolve subscriber identity, private accounts, home addresses or precise locations.
+
+### Configure the search provider
+The connector uses Brave Search API. Configure its API key as a Cloudflare Worker secret named `BRAVE_SEARCH_API_KEY` (never put the key in frontend JavaScript or commit it to Git).
+
+Example local test after deployment:
+```bash
+curl -X POST "https://YOUR-WORKER.workers.dev/api/public/search" \\
+  -H "Content-Type: application/json" \\
+  -d '{"phone":"081234567890","purpose":"spam-report"}'
+```
+
+If the secret is not configured, the endpoint returns `503 connector_not_configured`. This is intentional; no fabricated or demo search results are returned.
+
+Before production use, review the search provider's current plan, pricing, terms, data-processing terms and permitted use. Apply authentication, rate limiting, audit logs, retention limits and per-investigation authorization before exposing this endpoint to broad users.
