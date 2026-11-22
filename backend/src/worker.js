@@ -1,6 +1,7 @@
 import { parsePhoneNumberFromString } from "libphonenumber-js/max";
 
 const ALLOWED_ORIGIN = "https://3tije.github.io";
+const MAX_SEARCH_RESULTS = 8;
 
 function corsHeaders(origin) {
   const allowed = origin === ALLOWED_ORIGIN ? origin : ALLOWED_ORIGIN;
@@ -56,8 +57,87 @@ function analyzePhoneNumber(input) {
   };
 }
 
+function buildPublicQuery(phone, purpose) {
+  // Search is intentionally constrained to public business-contact or scam-report context.
+  // It does not perform person-name, address, account, or location lookups.
+  const exact = `"${phone.number}"`;
+  if (purpose === "business-contact") {
+    return `${exact} (kontak resmi OR contact OR customer service OR layanan pelanggan)`;
+  }
+  if (purpose === "spam-report") {
+    return `${exact} (spam OR scam OR fraud OR penipuan OR nomor mencurigakan)`;
+  }
+  return null;
+}
+
+async function searchPublicSources(phone, purpose, env) {
+  const query = buildPublicQuery(phone, purpose);
+  if (!query) {
+    return { ok: false, status: "invalid_purpose", error: "Tujuan pencarian tidak didukung." };
+  }
+  if (!env.BRAVE_SEARCH_API_KEY) {
+    return {
+      ok: false,
+      status: "connector_not_configured",
+      error: "Konektor pencarian belum dikonfigurasi. Tambahkan BRAVE_SEARCH_API_KEY sebagai secret Cloudflare Worker.",
+      setupRequired: true
+    };
+  }
+
+  const endpoint = new URL("https://api.search.brave.com/res/v1/web/search");
+  endpoint.searchParams.set("q", query);
+  endpoint.searchParams.set("count", String(MAX_SEARCH_RESULTS));
+  endpoint.searchParams.set("country", "ID");
+  endpoint.searchParams.set("search_lang", "id");
+  endpoint.searchParams.set("safesearch", "strict");
+  endpoint.searchParams.set("text_decorations", "false");
+  endpoint.searchParams.set("spellcheck", "false");
+
+  const response = await fetch(endpoint.toString(), {
+    headers: {
+      "Accept": "application/json",
+      "X-Subscription-Token": env.BRAVE_SEARCH_API_KEY
+    }
+  });
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: "provider_error",
+      error: `Penyedia pencarian mengembalikan status ${response.status}. Periksa konfigurasi dan kuota konektor.`
+    };
+  }
+
+  const payload = await response.json();
+  const results = Array.isArray(payload?.web?.results) ? payload.web.results : [];
+  const findings = results.slice(0, MAX_SEARCH_RESULTS).flatMap((item) => {
+    const url = String(item?.url || "");
+    if (!/^https?:\/\//i.test(url)) return [];
+    return [{
+      title: String(item?.title || "Tanpa judul").slice(0, 300),
+      url,
+      snippet: String(item?.description || "").slice(0, 700),
+      sourceDomain: (() => {
+        try { return new URL(url).hostname; } catch { return ""; }
+      })(),
+      verificationStatus: "unverified",
+      observedAt: new Date().toISOString()
+    }];
+  });
+
+  return {
+    ok: true,
+    status: "review_required",
+    purpose,
+    query,
+    resultCount: findings.length,
+    findings,
+    note: "Hasil berasal dari indeks web publik dan belum diverifikasi. Kemunculan nomor tidak membuktikan kepemilikan, identitas, hubungan, atau aktivitas nomor. Tinjau sumber asli dan dasar penggunaannya sebelum menyimpan atau menyimpulkan."
+  };
+}
+
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     const origin = request.headers.get("Origin") || "";
     const url = new URL(request.url);
 
@@ -69,9 +149,10 @@ export default {
       return json({
         status: "ok",
         service: "PHONE INTEL API",
-        version: "1.0.0",
+        version: "1.1.0",
         runtime: "cloudflare-workers",
-        scope: "public-data-only"
+        scope: "public-data-only",
+        capabilities: ["phone-metadata", "public-source-discovery"]
       }, 200, origin);
     }
 
@@ -85,6 +166,50 @@ export default {
 
       const result = analyzePhoneNumber(body?.phone);
       return json(result, result.ok ? 200 : 400, origin);
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/public/search") {
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: "Request body harus berupa JSON yang valid." }, 400, origin);
+      }
+
+      const phoneResult = analyzePhoneNumber(body?.phone);
+      if (!phoneResult.ok || !phoneResult.valid) {
+        return json({
+          ok: false,
+          error: phoneResult.error || "Nomor belum memenuhi validasi metadata penomoran."
+        }, 400, origin);
+      }
+
+      const purpose = String(body?.purpose || "");
+      if (!["business-contact", "spam-report"].includes(purpose)) {
+        return json({
+          ok: false,
+          error: "Pilih tujuan business-contact atau spam-report."
+        }, 400, origin);
+      }
+
+      try {
+        const result = await searchPublicSources(phoneResult, purpose, env || {});
+        const statusCode = result.ok ? 200 : result.status === "connector_not_configured" ? 503 : 502;
+        return json({
+          ...result,
+          phone: {
+            e164: phoneResult.e164,
+            country: phoneResult.country,
+            validation: phoneResult.validation
+          }
+        }, statusCode, origin);
+      } catch {
+        return json({
+          ok: false,
+          status: "provider_unavailable",
+          error: "Konektor pencarian tidak dapat dihubungi. Coba kembali nanti."
+        }, 502, origin);
+      }
     }
 
     return json({ error: "Endpoint tidak ditemukan." }, 404, origin);
