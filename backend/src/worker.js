@@ -1,5 +1,5 @@
 import { parsePhoneNumberFromString } from "libphonenumber-js/max";
-const ORIGIN="https://3tije.github.io",MAX=8,VERSION="1.4.0",SESSION_DAYS=7;
+const ORIGIN="https://3tije.github.io",MAX=10,VERSION="1.5.0",SESSION_DAYS=7;
 const cors=()=>({"Access-Control-Allow-Origin":ORIGIN,"Access-Control-Allow-Methods":"GET, POST, DELETE, OPTIONS","Access-Control-Allow-Headers":"Content-Type, Authorization","Access-Control-Max-Age":"86400","Vary":"Origin"});
 const json=(d,s=200)=>new Response(JSON.stringify(d),{status:s,headers:{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store",...cors()}});
 async function read(r){try{return await r.json()}catch{return null}}
@@ -10,8 +10,42 @@ async function login(r,e){if(!e.DB||!e.OWNER_PASSWORD)return json({ok:false,erro
 async function logout(r,e){let m=(r.headers.get("Authorization")||"").match(/^Bearer\s+(.+)$/i);if(m&&e.DB)await e.DB.prepare("DELETE FROM owner_sessions WHERE token_hash=?").bind(await hash(m[1])).run();return json({ok:true,message:"Sesi telah diakhiri."})}
 function analyze(input){let raw=String(input??"").trim();if(!raw)return{ok:false,error:"Nomor telepon wajib diisi."};let p=parsePhoneNumberFromString(raw,"ID");if(!p)return{ok:false,error:"Format nomor belum dapat dikenali."};let possible=p.isPossible(),valid=p.isValid();return{ok:true,input:raw,e164:p.number,country:p.country??null,countryCallingCode:p.countryCallingCode,nationalNumber:p.nationalNumber,internationalFormat:p.formatInternational(),nationalFormat:p.formatNational(),numberType:p.getType()??"UNKNOWN",possible,valid,validation:valid?"VALID_NUMBERING_PLAN":possible?"POSSIBLE_BUT_NOT_CONFIRMED":"INVALID_OR_UNLIKELY",metadataNote:"Validasi metadata tidak membuktikan nomor aktif, pemilik, operator, atau lokasi pengguna."}}
 async function saveAnalysis(e,p){let id=crypto.randomUUID(),createdAt=new Date().toISOString();await e.DB.prepare("INSERT INTO phone_analyses(id,phone_e164,country,validation,created_at) VALUES(?,?,?,?,?)").bind(id,p.e164,p.country||null,p.validation,createdAt).run();return{id,createdAt}}
-function makeQuery(purpose,num){let exact=`"${num}"`;if(purpose==="business-contact")return`${exact} (kontak resmi OR contact OR customer service OR layanan pelanggan)`;if(purpose==="spam-report")return`${exact} (spam OR scam OR fraud OR penipuan OR nomor mencurigakan)`;return null}
-async function publicSearch(p,purpose,e){let query=makeQuery(purpose,p.e164);if(!query)return{ok:false,status:"invalid_purpose",error:"Tujuan pencarian tidak didukung."};if(!e.TAVILY_API_KEY)return{ok:false,status:"connector_not_configured",error:"Tavily API Key belum dikonfigurasi."};let r=await fetch("https://api.tavily.com/search",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${e.TAVILY_API_KEY}`},body:JSON.stringify({query,search_depth:"basic",topic:"general",max_results:MAX,include_answer:false,include_raw_content:false,country:"indonesia"})});if(!r.ok)return{ok:false,status:"provider_error",error:`Tavily mengembalikan status ${r.status}.`};let payload=await r.json(),rows=Array.isArray(payload.results)?payload.results:[],findings=rows.slice(0,MAX).flatMap(x=>{let url=String(x.url||"");if(!/^https?:\/\//i.test(url))return[];let sourceDomain="";try{sourceDomain=new URL(url).hostname}catch{}return[{title:String(x.title||"Tanpa judul").slice(0,300),url,snippet:String(x.content||"").slice(0,700),sourceDomain,verificationStatus:"unverified",observedAt:new Date().toISOString()}]});return{ok:true,status:"review_required",provider:"Tavily",purpose,query,resultCount:findings.length,findings,note:"Hasil berasal dari indeks web publik dan belum diverifikasi. Kemunculan nomor tidak membuktikan identitas atau kepemilikan seseorang."}}
+function makeQueries(p,purpose){
+ const variants=[p.e164,p.internationalFormat,p.nationalFormat].filter(Boolean);
+ const unique=[...new Set(variants.map(x=>String(x).trim()).filter(Boolean))];
+ const context=purpose==="business-contact"?'("kontak resmi" OR "customer service" OR "layanan pelanggan" OR "contact us")':'(spam OR scam OR fraud OR penipuan OR "nomor penipuan" OR "nomor spam")';
+ return unique.slice(0,3).map(v=>`"${v}" ${context}`);
+}
+function normalizeFoundNumber(v){let d=String(v||"").replace(/\D/g,"");if(d.startsWith("0"))d="62"+d.slice(1);else if(d.startsWith("8"))d="62"+d;return d}
+function containsTargetNumber(text,p){
+ const target=normalizeFoundNumber(p.e164);if(!target)return false;
+ const chunks=String(text||"").match(/\+?\d[\d\s().-]{6,}\d/g)||[];
+ return chunks.some(c=>normalizeFoundNumber(c)===target);
+}
+function relevance(row,p){
+ const title=String(row.title||""),content=String(row.content||""),url=String(row.url||"");
+ if(containsTargetNumber(`${title}\n${content}\n${url}`,p))return 100;
+ return 0;
+}
+async function publicSearch(p,purpose,e){
+ const queries=makeQueries(p,purpose);if(!queries.length)return{ok:false,status:"invalid_purpose",error:"Tujuan pencarian tidak didukung."};
+ if(!e.TAVILY_API_KEY)return{ok:false,status:"connector_not_configured",error:"Tavily API Key belum dikonfigurasi."};
+ const payloads=await Promise.all(queries.map(async query=>{
+  const r=await fetch("https://api.tavily.com/search",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${e.TAVILY_API_KEY}`},body:JSON.stringify({query,search_depth:"advanced",topic:"general",max_results:MAX,include_answer:false,include_raw_content:false,country:"indonesia"})});
+  if(!r.ok)throw new Error(`Tavily mengembalikan status ${r.status}.`);
+  return{query,data:await r.json()};
+ }));
+ const seen=new Set(),matches=[];
+ for(const pack of payloads){for(const row of (Array.isArray(pack.data.results)?pack.data.results:[])){
+  const url=String(row.url||"");if(!/^https?:\/\//i.test(url)||seen.has(url))continue;seen.add(url);
+  const score=relevance(row,p);if(score<100)continue;
+  let sourceDomain="";try{sourceDomain=new URL(url).hostname.toLowerCase()}catch{}
+  matches.push({title:String(row.title||"Tanpa judul").slice(0,300),url,snippet:String(row.content||"").slice(0,900),sourceDomain,verificationStatus:"unverified",observedAt:new Date().toISOString(),relevanceScore:score,matchedNumber:true});
+ }}
+ matches.sort((a,b)=>b.relevanceScore-a.relevanceScore);
+ const findings=matches.slice(0,MAX);
+ return{ok:true,status:findings.length?"exact_match_review_required":"no_exact_match",provider:"Tavily",purpose,queries,resultCount:findings.length,findings,summary:findings.length?`${findings.length} halaman memuat nomor target secara eksplisit. Tetap periksa konteks halaman dan sumber aslinya.`:"Tavily tidak menghasilkan halaman yang memuat nomor target secara eksplisit. Hasil yang hanya berkaitan secara umum disisihkan.",note:"Kecocokan teks hanya menunjukkan bahwa nomor muncul pada halaman publik. Ini bukan bukti kepemilikan, identitas, penggunaan aktif, atau hubungan seseorang dengan nomor tersebut."}
+}
 async function saveFindings(e,id,items){if(!items.length)return;await e.DB.batch(items.map(x=>e.DB.prepare("INSERT INTO public_findings(id,analysis_id,title,url,source_domain,snippet,verification_status,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(),id,x.title,x.url,x.sourceDomain,x.snippet,x.verificationStatus,x.observedAt)))}
 async function getHistory(e){let a=await e.DB.prepare("SELECT id,phone_e164,country,validation,created_at FROM phone_analyses ORDER BY created_at DESC LIMIT 100").all(),rows=a.results||[];if(!rows.length)return json({ok:true,analyses:[],findings:[]});let ids=rows.map(x=>x.id),marks=ids.map(()=>"?").join(","),f=await e.DB.prepare(`SELECT id,analysis_id,title,url,source_domain,snippet,verification_status,created_at FROM public_findings WHERE analysis_id IN (${marks}) ORDER BY created_at DESC`).bind(...ids).all();return json({ok:true,analyses:rows,findings:f.results||[]})}
 async function deleteHistory(e){await e.DB.batch([e.DB.prepare("DELETE FROM public_findings"),e.DB.prepare("DELETE FROM intelligence_reports"),e.DB.prepare("DELETE FROM phone_analyses")]);return json({ok:true,message:"Riwayat analisis, temuan, dan laporan telah dihapus."})}
