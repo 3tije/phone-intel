@@ -11,40 +11,69 @@ async function logout(r,e){let m=(r.headers.get("Authorization")||"").match(/^Be
 function analyze(input){let raw=String(input??"").trim();if(!raw)return{ok:false,error:"Nomor telepon wajib diisi."};let p=parsePhoneNumberFromString(raw,"ID");if(!p)return{ok:false,error:"Format nomor belum dapat dikenali."};let possible=p.isPossible(),valid=p.isValid();return{ok:true,input:raw,e164:p.number,country:p.country??null,countryCallingCode:p.countryCallingCode,nationalNumber:p.nationalNumber,internationalFormat:p.formatInternational(),nationalFormat:p.formatNational(),numberType:p.getType()??"UNKNOWN",possible,valid,validation:valid?"VALID_NUMBERING_PLAN":possible?"POSSIBLE_BUT_NOT_CONFIRMED":"INVALID_OR_UNLIKELY",metadataNote:"Validasi metadata tidak membuktikan nomor aktif, pemilik, operator, atau lokasi pengguna."}}
 async function saveAnalysis(e,p){let id=crypto.randomUUID(),createdAt=new Date().toISOString();await e.DB.prepare("INSERT INTO phone_analyses(id,phone_e164,country,validation,created_at) VALUES(?,?,?,?,?)").bind(id,p.e164,p.country||null,p.validation,createdAt).run();return{id,createdAt}}
 function makeQueries(p,purpose){
- const variants=[p.e164,p.internationalFormat,p.nationalFormat].filter(Boolean);
- const unique=[...new Set(variants.map(x=>String(x).trim()).filter(Boolean))];
- const context=purpose==="business-contact"?'("kontak resmi" OR "customer service" OR "layanan pelanggan" OR "contact us")':'(spam OR scam OR fraud OR penipuan OR "nomor penipuan" OR "nomor spam")';
- return unique.slice(0,3).map(v=>`"${v}" ${context}`);
+ const digits=String(p.e164||"").replace(/\D/g,"");
+ const national=String(p.nationalFormat||"").trim();
+ const intl=String(p.internationalFormat||"").trim();
+ const terms=purpose==="business-contact"
+  ? '(WhatsApp OR "contact" OR "customer service" OR "kontak" OR "layanan pelanggan")'
+  : '(spam OR scam OR fraud OR penipuan OR "nomor spam" OR "nomor penipuan")';
+ // Avoid quoting every complete number: search engines can miss pages that format it differently.
+ const candidates=[
+  `${digits} Indonesia ${terms}`,
+  `${intl} ${terms}`,
+  `${national} ${terms}`
+ ];
+ return [...new Set(candidates.map(x=>x.trim()).filter(x=>x.length>0))].slice(0,3);
 }
-function normalizeFoundNumber(v){let d=String(v||"").replace(/\D/g,"");if(d.startsWith("0"))d="62"+d.slice(1);else if(d.startsWith("8"))d="62"+d;return d}
+function normalizeFoundNumber(v){
+ let d=String(v||"").replace(/\D/g,"");
+ if(d.startsWith("00"))d=d.slice(2);
+ if(d.startsWith("0"))d="62"+d.slice(1);
+ else if(d.startsWith("8"))d="62"+d;
+ return d;
+}
 function containsTargetNumber(text,p){
- const target=normalizeFoundNumber(p.e164);if(!target)return false;
- const chunks=String(text||"").match(/\+?\d[\d\s().-]{6,}\d/g)||[];
- return chunks.some(c=>normalizeFoundNumber(c)===target);
+ const target=normalizeFoundNumber(p.e164);
+ if(!target)return false;
+ // Extract number-like runs, then compare normalized digits to the E.164 target.
+ const chunks=String(text||"").match(/\+?\d[\d\s()./-]{6,}\d/g)||[];
+ return chunks.some(c=>{
+  const found=normalizeFoundNumber(c);
+  return found===target;
+ });
 }
 function relevance(row,p){
- const title=String(row.title||""),content=String(row.content||""),url=String(row.url||"");
- if(containsTargetNumber(`${title}\n${content}\n${url}`,p))return 100;
- return 0;
+ const title=String(row.title||"");
+ const content=String(row.content||"");
+ const raw=String(row.raw_content||"").slice(0,30000);
+ const url=String(row.url||"");
+ return containsTargetNumber(`${title}\n${content}\n${raw}\n${url}`,p)?100:0;
 }
 async function publicSearch(p,purpose,e){
- const queries=makeQueries(p,purpose);if(!queries.length)return{ok:false,status:"invalid_purpose",error:"Tujuan pencarian tidak didukung."};
+ const queries=makeQueries(p,purpose);
+ if(!queries.length)return{ok:false,status:"invalid_purpose",error:"Tujuan pencarian tidak didukung."};
  if(!e.TAVILY_API_KEY)return{ok:false,status:"connector_not_configured",error:"Tavily API Key belum dikonfigurasi."};
  const payloads=await Promise.all(queries.map(async query=>{
-  const r=await fetch("https://api.tavily.com/search",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${e.TAVILY_API_KEY}`},body:JSON.stringify({query,search_depth:"advanced",topic:"general",max_results:MAX,include_answer:false,include_raw_content:false,country:"indonesia"})});
+  const r=await fetch("https://api.tavily.com/search",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${e.TAVILY_API_KEY}`},body:JSON.stringify({query,search_depth:"advanced",topic:"general",max_results:MAX,include_answer:false,include_raw_content:"markdown",country:"indonesia"})});
   if(!r.ok)throw new Error(`Tavily mengembalikan status ${r.status}.`);
   return{query,data:await r.json()};
  }));
  const seen=new Set(),matches=[];
- for(const pack of payloads){for(const row of (Array.isArray(pack.data.results)?pack.data.results:[])){
-  const url=String(row.url||"");if(!/^https?:\/\//i.test(url)||seen.has(url))continue;seen.add(url);
-  const score=relevance(row,p);if(score<100)continue;
-  let sourceDomain="";try{sourceDomain=new URL(url).hostname.toLowerCase()}catch{}
-  matches.push({title:String(row.title||"Tanpa judul").slice(0,300),url,snippet:String(row.content||"").slice(0,900),sourceDomain,verificationStatus:"unverified",observedAt:new Date().toISOString(),relevanceScore:score,matchedNumber:true});
- }}
+ for(const pack of payloads){
+  for(const row of (Array.isArray(pack.data.results)?pack.data.results:[])){
+   const url=String(row.url||"");
+   if(!/^https?:\/\//i.test(url)||seen.has(url))continue;
+   seen.add(url);
+   const score=relevance(row,p);
+   if(score<100)continue;
+   let sourceDomain="";
+   try{sourceDomain=new URL(url).hostname.toLowerCase()}catch{}
+   matches.push({title:String(row.title||"Tanpa judul").slice(0,300),url,snippet:String(row.raw_content||row.content||"").slice(0,900),sourceDomain,verificationStatus:"unverified",observedAt:new Date().toISOString(),relevanceScore:score,matchedNumber:true});
+  }
+ }
  matches.sort((a,b)=>b.relevanceScore-a.relevanceScore);
  const findings=matches.slice(0,MAX);
- return{ok:true,status:findings.length?"exact_match_review_required":"no_exact_match",provider:"Tavily",purpose,queries,resultCount:findings.length,findings,summary:findings.length?`${findings.length} halaman memuat nomor target secara eksplisit. Tetap periksa konteks halaman dan sumber aslinya.`:"Tavily tidak menghasilkan halaman yang memuat nomor target secara eksplisit. Hasil yang hanya berkaitan secara umum disisihkan.",note:"Kecocokan teks hanya menunjukkan bahwa nomor muncul pada halaman publik. Ini bukan bukti kepemilikan, identitas, penggunaan aktif, atau hubungan seseorang dengan nomor tersebut."}
+ return{ok:true,status:findings.length?"exact_match_review_required":"no_exact_match",provider:"Tavily",purpose,queries,resultCount:findings.length,findings,summary:findings.length?`${findings.length} halaman memuat nomor target secara eksplisit. Tetap periksa konteks halaman dan sumber aslinya.`:"Belum ditemukan halaman yang memuat nomor target secara eksplisit pada cuplikan maupun konten yang dikembalikan Tavily. Hasil umum tidak ditampilkan sebagai kecocokan.",note:"Kecocokan teks hanya menunjukkan bahwa nomor muncul pada halaman publik. Ini bukan bukti kepemilikan, identitas, penggunaan aktif, atau hubungan seseorang dengan nomor tersebut."}
 }
 async function saveFindings(e,id,items){if(!items.length)return;await e.DB.batch(items.map(x=>e.DB.prepare("INSERT INTO public_findings(id,analysis_id,title,url,source_domain,snippet,verification_status,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(),id,x.title,x.url,x.sourceDomain,x.snippet,x.verificationStatus,x.observedAt)))}
 async function getHistory(e){let a=await e.DB.prepare("SELECT id,phone_e164,country,validation,created_at FROM phone_analyses ORDER BY created_at DESC LIMIT 100").all(),rows=a.results||[];if(!rows.length)return json({ok:true,analyses:[],findings:[]});let ids=rows.map(x=>x.id),marks=ids.map(()=>"?").join(","),f=await e.DB.prepare(`SELECT id,analysis_id,title,url,source_domain,snippet,verification_status,created_at FROM public_findings WHERE analysis_id IN (${marks}) ORDER BY created_at DESC`).bind(...ids).all();return json({ok:true,analyses:rows,findings:f.results||[]})}
