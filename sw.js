@@ -1,4 +1,4 @@
-const CACHE="phone-intel-v1-pages-v3",BASE=new URL("./",self.registration.scope);
+const CACHE="phone-intel-v1-pages-v4",BASE=new URL("./",self.registration.scope);
 const ASSETS=["","index.html","css/style.css","css/login-addon.css","js/config.js","js/app.js","manifest.json","assets/icon.svg"].map(p=>new URL(p,BASE).toString());
 self.addEventListener("install",e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)));self.skipWaiting()});
 self.addEventListener("activate",e=>{e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))));self.clients.claim()});
