@@ -1,3 +1,4 @@
+
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "phone-intel",
@@ -5,5 +6,12 @@
   "compatibility_date": "2026-11-21",
   "observability": {
     "enabled": true
-  }
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "phone_intel_db",
+      "database_id": "e70382c6-5f5c-4fd9-a1c9-7480b256d8d0"
+    }
+  ]
 }
