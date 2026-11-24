@@ -1,8 +1,14 @@
-.login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:radial-gradient(circle at 50% 15%,#172b45 0,#080f1c 55%)}
-.login-card{width:min(100%,420px);padding:34px;border:1px solid var(--line);border-radius:20px;background:rgba(16,28,46,.96);box-shadow:0 24px 80px rgba(0,0,0,.35);display:flex;flex-direction:column;gap:14px}
-.login-card h1{margin:0;font-size:28px;letter-spacing:.04em}.login-card label{font-size:13px;color:var(--muted);margin-top:10px}
-.login-card input{width:100%;padding:14px 15px;border-radius:10px;border:1px solid var(--line);background:#0b1424;color:var(--text);font:inherit;outline:none}
-.login-card input:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(77,214,207,.12)}
-.login-mark{width:48px;height:48px;display:grid;place-items:center;border-radius:14px;background:linear-gradient(135deg,var(--cyan),var(--blue));color:#071321;font-weight:800}
-.login-foot{color:var(--muted);text-align:center;margin-top:8px}.settings-security{margin-top:18px}.top-actions{gap:12px}
-@media(max-width:700px){.login-card{padding:26px 22px}}
+/* PHONE INTEL V1.5 — strict owner gate */
+html,body{min-height:100%;}
+body.auth-locked{overflow:hidden!important;height:100vh!important;}
+body.auth-locked #appShell,
+#appShell.hidden{display:none!important;visibility:hidden!important;pointer-events:none!important;}
+#loginScreen.login-screen{position:fixed!important;inset:0!important;z-index:99999!important;width:100vw!important;height:100dvh!important;min-height:100dvh!important;overflow:auto!important;overscroll-behavior:contain!important;display:flex!important;align-items:center!important;justify-content:center!important;background:radial-gradient(circle at 50% 15%,#172b45 0,#080f1c 58%)!important;}
+#loginScreen.hidden{display:none!important;}
+#loginScreen .login-card{max-height:calc(100dvh - 32px);overflow:auto;}
+#appShell:not(.hidden){visibility:visible;pointer-events:auto;}
+.finding-card .relevance-line{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0;color:var(--muted);font-size:12px}
+.match-badge{display:inline-block;padding:4px 8px;border:1px solid rgba(77,214,207,.35);border-radius:6px;color:#62ddd4;font-size:10px;font-weight:700;letter-spacing:.06em}
+.no-match-note{padding:12px;border:1px solid var(--line);border-radius:10px;color:var(--muted)}
+.search-result-summary{margin:12px 0;padding:12px;border:1px solid var(--line);border-radius:10px;background:rgba(8,20,36,.55)}
+@media(max-width:700px){#loginScreen .login-card{width:min(100% - 28px,420px);padding:26px 22px}}
