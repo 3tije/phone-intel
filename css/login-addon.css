@@ -1,0 +1,8 @@
+.login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:radial-gradient(circle at 50% 15%,#172b45 0,#080f1c 55%)}
+.login-card{width:min(100%,420px);padding:34px;border:1px solid var(--line);border-radius:20px;background:rgba(16,28,46,.96);box-shadow:0 24px 80px rgba(0,0,0,.35);display:flex;flex-direction:column;gap:14px}
+.login-card h1{margin:0;font-size:28px;letter-spacing:.04em}.login-card label{font-size:13px;color:var(--muted);margin-top:10px}
+.login-card input{width:100%;padding:14px 15px;border-radius:10px;border:1px solid var(--line);background:#0b1424;color:var(--text);font:inherit;outline:none}
+.login-card input:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(77,214,207,.12)}
+.login-mark{width:48px;height:48px;display:grid;place-items:center;border-radius:14px;background:linear-gradient(135deg,var(--cyan),var(--blue));color:#071321;font-weight:800}
+.login-foot{color:var(--muted);text-align:center;margin-top:8px}.settings-security{margin-top:18px}.top-actions{gap:12px}
+@media(max-width:700px){.login-card{padding:26px 22px}}
