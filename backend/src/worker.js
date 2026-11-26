@@ -1,5 +1,5 @@
 import { parsePhoneNumberFromString } from "libphonenumber-js/max";
-const ORIGIN="https://phoneintel.mytije.com",MAX=10,VERSION="1.6.0",SESSION_DAYS=7;
+var ORIGIN = "https://3tije.github.io";,MAX=10,VERSION="1.6.0",SESSION_DAYS=7;
 const cors=()=>({"Access-Control-Allow-Origin":ORIGIN,"Access-Control-Allow-Methods":"GET, POST, DELETE, OPTIONS","Access-Control-Allow-Headers":"Content-Type, Authorization","Access-Control-Max-Age":"86400","Vary":"Origin"});
 const json=(d,s=200)=>new Response(JSON.stringify(d),{status:s,headers:{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store",...cors()}});
 async function read(r){try{return await r.json()}catch{return null}}
